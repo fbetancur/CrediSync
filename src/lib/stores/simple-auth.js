@@ -1,5 +1,6 @@
 import { writable, derived } from 'svelte/store';
 import { supabase } from '$lib/supabase.js';
+import { syncProductosToSupabase } from '$lib/sync/productos.js';
 
 // Store básico de Supabase Auth (como el ejemplo)
 export const user = writable(null);
@@ -78,19 +79,22 @@ async function loadTenantData(userId) {
 		}
 
 		// 3. Obtener rol y permisos
+		console.log('🔍 Buscando rol:', userData.rol, 'en tenant:', userData.tenant_id);
 		const { data: roleData, error: roleError } = await supabase
 			.from('roles')
-			.select('id, nombre, permisos, es_admin')
+			.select('id, nombre, permisos, es_admin, scope')
 			.eq('tenant_id', userData.tenant_id)
 			.eq('nombre', userData.rol)
 			.single();
 
 		if (roleError || !roleData) {
-			console.warn('⚠️ Rol no encontrado, usando permisos básicos');
+			console.warn('⚠️ Rol no encontrado, usando permisos básicos. Error:', roleError);
+		} else {
+			console.log('✅ Rol encontrado:', roleData);
 		}
 
 		// 4. Establecer datos seguros
-		tenantData.set({
+		const finalData = {
 			user: {
 				id: userData.id,
 				email: userData.email,
@@ -103,9 +107,19 @@ async function loadTenantData(userId) {
 				nombre: tenant.nombre
 			},
 			role: roleData || { nombre: userData.rol, permisos: {}, es_admin: false }
-		});
+		};
+		
+		tenantData.set(finalData);
+		console.log('✅ Datos multi-tenant cargados correctamente:', finalData);
 
-		console.log('✅ Datos multi-tenant cargados correctamente');
+		// 5. Iniciar sincronización automática para offline-first
+		console.log('🔄 Iniciando sincronización automática...');
+		try {
+			await syncProductosToSupabase();
+			console.log('✅ Sincronización inicial completada');
+		} catch (syncError) {
+			console.warn('⚠️ Error en sincronización inicial (continuando):', syncError);
+		}
 
 	} catch (error) {
 		console.error('❌ Error crítico cargando datos multi-tenant:', error);

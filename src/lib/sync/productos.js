@@ -1,7 +1,7 @@
-import { db, SYNC_PRIORITY } from '$lib/db/local.js';
+import { db, SYNC_PRIORITY } from '$lib/db/schema.js';
 import { supabase } from '$lib/supabase.js';
 import { get } from 'svelte/store';
-import { user } from '$lib/stores/auth.js';
+import { currentUser, currentTenant } from '$lib/stores/simple-auth.js';
 import { isSyncingProductos, syncCounter } from '$lib/stores/sync.js';
 import { showNotification } from '$lib/stores/notifications.js';
 
@@ -9,13 +9,14 @@ import { showNotification } from '$lib/stores/notifications.js';
  * Obtener todos los productos (local-first)
  */
 export async function getProductos() {
-	const currentUser = get(user);
-	if (!currentUser) return [];
+	const user = get(currentUser);
+	const tenant = get(currentTenant);
+	if (!user || !tenant) return [];
 
-	// Obtener de IndexedDB
+	// Obtener de IndexedDB usando el tenant real del usuario
 	const localProductos = await db.productos_credito
 		.where('tenant_id')
-		.equals('00000000-0000-0000-0000-000000000001')
+		.equals(user.tenant_id)
 		.toArray();
 
 	return localProductos;
@@ -25,15 +26,16 @@ export async function getProductos() {
  * Crear producto (offline-first)
  */
 export async function createProducto(productoData) {
-	const currentUser = get(user);
-	if (!currentUser) throw new Error('No user logged in');
+	const user = get(currentUser);
+	const tenant = get(currentTenant);
+	if (!user || !tenant) throw new Error('No user logged in');
 
 	const now = new Date().toISOString();
 	const producto = {
 		id: crypto.randomUUID(),
 		...productoData,
-		tenant_id: '00000000-0000-0000-0000-000000000001',
-		created_by: currentUser.id,
+		tenant_id: user.tenant_id,
+		created_by: user.id,
 		created_at: now,
 		updated_at: now,
 		synced: false
@@ -140,8 +142,9 @@ export async function syncProductosToSupabase() {
 		return;
 	}
 
-	const currentUser = get(user);
-	if (!currentUser) return;
+	const user = get(currentUser);
+	const tenant = get(currentTenant);
+	if (!user || !tenant) return;
 
 	if (get(isSyncingProductos)) {
 		console.log('Productos sync already in progress');
@@ -217,7 +220,7 @@ export async function syncProductosToSupabase() {
 		const { data: remoteProductos, error } = await supabase
 			.from('productos_credito')
 			.select('*')
-			.eq('tenant_id', '00000000-0000-0000-0000-000000000001');
+			.eq('tenant_id', user.tenant_id);
 
 		if (!error && remoteProductos) {
 			// Crear Set de IDs remotos para comparación rápida
@@ -226,7 +229,7 @@ export async function syncProductosToSupabase() {
 			// Obtener todos los productos locales
 			const localProductos = await db.productos_credito
 				.where('tenant_id')
-				.equals('00000000-0000-0000-0000-000000000001')
+				.equals(user.tenant_id)
 				.toArray();
 
 			// 2.1. Eliminar productos que ya no existen en Supabase

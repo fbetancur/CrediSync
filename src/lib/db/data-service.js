@@ -53,23 +53,30 @@ class DataService {
 		}
 	}
 
-	applySecurityFilters(collection, tableName) {
+	applySecurityFilters(table, tableName) {
 		const currentUser = this.getCurrentUser();
 		
 		// Filtro obligatorio por empresa
-		let filtered = collection.where('tenant_id').equals(currentUser.tenant_id);
+		let filtered = table.where('tenant_id').equals(currentUser.tenant_id);
 		
 		// Filtros específicos por tabla y rol
 		if (tableName === 'clientes' || tableName === 'creditos') {
 			switch (currentUser.role) {
-				case 'cobrador':
+				case 'user':
+				case 'viewer':
+				case 'cobrador': // Mantener compatibilidad
+					// Solo ven sus propios datos (scope: own)
 					return filtered.and(record => record.created_by === currentUser.id);
-				case 'supervisor':
-					return filtered.and(record => 
-						record.created_by === currentUser.id || record.supervisor_id === currentUser.id
-					);
+				case 'manager':
+				case 'supervisor': // Mantener compatibilidad
+					// Ven todo del tenant (scope: tenant)
+					return filtered;
 				case 'admin':
-					return filtered; // Ve todo de su empresa
+					// Ven todo del tenant (scope: tenant)
+					return filtered;
+				default:
+					// Por defecto, solo sus propios datos
+					return filtered.and(record => record.created_by === currentUser.id);
 			}
 		}
 		
@@ -82,14 +89,14 @@ class DataService {
 			const currentUser = this.getCurrentUser();
 			console.log('🔍 Obteniendo productos para tenant:', currentUser.tenant_id);
 			
-			// Consulta directa sin filtros complejos para debuggear
+			// Consulta local (IndexedDB) - offline-first
 			const productos = await db.productos_credito
 				.where('tenant_id')
 				.equals(currentUser.tenant_id)
 				.and(record => record.activo === true)
 				.toArray();
 				
-			console.log('✅ Productos encontrados:', productos.length);
+			console.log('✅ Productos encontrados (local):', productos.length);
 			return productos;
 		} catch (error) {
 			console.error('❌ Error en getProductosCredito:', error);
@@ -116,15 +123,13 @@ class DataService {
 	async getClientes() {
 		try {
 			const currentUser = this.getCurrentUser();
-			console.log('🔍 Obteniendo clientes para tenant:', currentUser.tenant_id);
+			console.log('🔍 Obteniendo clientes para tenant:', currentUser.tenant_id, 'rol:', currentUser.role);
 			
-			// Consulta directa sin filtros complejos para debuggear
-			const clientes = await db.clientes
-				.where('tenant_id')
-				.equals(currentUser.tenant_id)
-				.toArray();
+			// Aplicar filtros de seguridad por rol
+			const filtered = this.applySecurityFilters(db.clientes, 'clientes');
+			const clientes = await filtered.toArray();
 				
-			console.log('✅ Clientes encontrados:', clientes.length);
+			console.log('✅ Clientes encontrados (con filtros de rol):', clientes.length);
 			return clientes;
 		} catch (error) {
 			console.error('❌ Error en getClientes:', error);
@@ -162,7 +167,7 @@ class DataService {
 		}
 		
 		// Verificar permisos según el rol
-		if (currentUser.role === 'cobrador' && cliente.created_by !== currentUser.id) {
+		if ((currentUser.role === 'user' || currentUser.role === 'viewer' || currentUser.role === 'cobrador') && cliente.created_by !== currentUser.id) {
 			throw new Error('Solo puedes eliminar clientes que tú creaste');
 		}
 		
@@ -172,8 +177,7 @@ class DataService {
 
 	// CRÉDITOS
 	async getCreditos() {
-		const collection = db.creditos.toCollection();
-		const filtered = this.applySecurityFilters(collection, 'creditos');
+		const filtered = this.applySecurityFilters(db.creditos, 'creditos');
 		return await filtered.toArray();
 	}
 

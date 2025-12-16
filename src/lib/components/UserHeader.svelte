@@ -13,14 +13,15 @@
 	function getRoleBadgeClass(role) {
 		/** @type {Record<string, string>} */
 		const classes = {
-			cobrador: 'badge-cobrador',
-			user: 'badge-cobrador',
-			supervisor: 'badge-supervisor',
-			manager: 'badge-supervisor', 
 			admin: 'badge-admin',
+			manager: 'badge-manager',
+			user: 'badge-user',
+			viewer: 'badge-viewer',
+			cobrador: 'badge-cobrador', // Mantener compatibilidad
+			supervisor: 'badge-supervisor',
 			superadmin: 'badge-superadmin'
 		};
-		return classes[role] || 'badge-cobrador';
+		return classes[role] || 'badge-user';
 	}
 
 	/**
@@ -29,11 +30,12 @@
 	function getRoleName(role) {
 		/** @type {Record<string, string>} */
 		const names = {
-			cobrador: 'Cobrador',
-			user: 'Cobrador',
-			supervisor: 'Supervisor',
-			manager: 'Supervisor',
 			admin: 'Administrador',
+			manager: 'Gerente',
+			user: 'Usuario',
+			viewer: 'Observador',
+			cobrador: 'Cobrador', // Mantener compatibilidad
+			supervisor: 'Supervisor',
 			superadmin: 'Super Admin'
 		};
 		return names[role] || 'Usuario';
@@ -103,6 +105,26 @@
 		letter-spacing: 0.5px;
 	}
 
+	.badge-admin { 
+		background: #dcfce7; 
+		color: #166534; 
+	}
+	
+	.badge-manager { 
+		background: #fef3c7; 
+		color: #92400e; 
+	}
+	
+	.badge-user { 
+		background: #dbeafe; 
+		color: #1e40af; 
+	}
+	
+	.badge-viewer { 
+		background: #f3f4f6; 
+		color: #374151; 
+	}
+	
 	.badge-cobrador { 
 		background: #dbeafe; 
 		color: #1e40af; 
@@ -111,11 +133,6 @@
 	.badge-supervisor { 
 		background: #fef3c7; 
 		color: #92400e; 
-	}
-	
-	.badge-admin { 
-		background: #dcfce7; 
-		color: #166534; 
 	}
 	
 	.badge-superadmin { 
