@@ -98,6 +98,9 @@ export async function login(email, password) {
 			role: result.roleData.nombre
 		});
 		
+		// Verificar que el estado se haya actualizado
+		console.log('🔍 Estado después de set:', result ? 'AUTENTICADO' : 'NO AUTENTICADO');
+		
 		return result;
 		
 	} catch (error) {
@@ -214,11 +217,13 @@ export async function initAuth() {
 			});
 		} else {
 			console.log('ℹ️ No hay sesión activa');
+			authState.set(null);
 		}
 		
 	} catch (error) {
 		console.error('❌ Error inicializando auth:', error);
-		authError.set(error.message);
+		authError.set(null); // Limpiar error para no bloquear login
+		authState.set(null); // Asegurar que no hay sesión
 	} finally {
 		authLoading.set(false);
 	}
@@ -241,7 +246,14 @@ export function setupAuthListener() {
 
 // Auto-inicializar en el browser
 if (browser) {
-	initAuth();
+	// Inicializar de forma asíncrona para no bloquear
+	setTimeout(() => {
+		initAuth().catch(error => {
+			console.warn('Error en inicialización automática:', error);
+			authLoading.set(false);
+		});
+	}, 100);
+	
 	setupAuthListener();
 }
 

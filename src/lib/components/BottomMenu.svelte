@@ -4,7 +4,7 @@
 	const menuItems = [
 		{ href: '/productos', icon: '💳', label: 'Productos' },
 		{ href: '/clientes', icon: '👥', label: 'Clientes' },
-		{ href: '/nuevo-cliente', icon: '➕', label: 'Nuevo' },
+		{ href: '/clientes/nuevo', icon: '➕', label: 'Nuevo' },
 		{ href: '/otorgar-credito', icon: '💰', label: 'Crédito' },
 		{ href: '/debug', icon: '🔧', label: 'Debug' }
 	];

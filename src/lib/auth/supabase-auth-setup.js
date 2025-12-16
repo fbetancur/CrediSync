@@ -82,38 +82,76 @@ export async function loginWithSupabaseAuth(email, password) {
 			throw new Error('Credenciales inválidas');
 		}
 
-		// 2. Obtener datos completos del usuario con tenant y rol
-		const { data: userData, error: userError } = await supabase
+		console.log('🔍 Auth exitoso, obteniendo datos del usuario...');
+		console.log('🔍 User ID de Supabase Auth:', authData.user.id);
+		
+		// Primero verificar si el usuario existe en nuestra tabla
+		const { data: userCheck, error: checkError } = await supabase
 			.from('users')
-			.select(`
-				*,
-				tenants!inner(id, nombre, activo),
-				roles!inner(id, nombre, permisos, es_admin)
-			`)
+			.select('*')
 			.eq('id', authData.user.id)
-			.eq('activo', true)
-			.eq('tenants.activo', true)
 			.single();
+			
+		console.log('🔍 Verificación usuario:', { userCheck, checkError });
+		
+		if (checkError || !userCheck) {
+			throw new Error('Usuario no encontrado en la base de datos. Contacta al administrador.');
+		}
+		
+		// 2. Obtener datos del tenant
+		const { data: tenantData, error: tenantError } = await supabase
+			.from('tenants')
+			.select('*')
+			.eq('id', userCheck.tenant_id)
+			.eq('activo', true)
+			.single();
+			
+		console.log('🔍 Resultado consulta tenant:', { tenantData, tenantError });
+		
+		if (tenantError || !tenantData) {
+			throw new Error('Empresa no encontrada o inactiva');
+		}
+		
+		const userData = {
+			...userCheck,
+			tenants: tenantData
+		};
 
 		if (userError || !userData) {
 			console.error('❌ Usuario no encontrado o inactivo:', userError);
 			throw new Error('Usuario no autorizado');
 		}
 
-		// 3. Verificar que el tenant esté activo
+		// 3. Obtener rol del usuario
+		console.log('🔍 Obteniendo rol del usuario...');
+		const { data: roleData, error: roleError } = await supabase
+			.from('roles')
+			.select('id, nombre, permisos, es_admin')
+			.eq('tenant_id', userData.tenant_id)
+			.eq('nombre', userData.rol)
+			.single();
+			
+		console.log('🔍 Resultado consulta rol:', { roleData, roleError });
+
+		if (roleError || !roleData) {
+			console.error('❌ Rol no encontrado:', roleError);
+			throw new Error('Rol no configurado');
+		}
+
+		// 4. Verificar que el tenant esté activo
 		if (!userData.tenants.activo) {
 			throw new Error('Empresa temporalmente suspendida');
 		}
 
-		// 4. Actualizar JWT con información del tenant y rol
+		// 5. Actualizar JWT con información del tenant y rol
 		const { error: updateError } = await supabase.auth.updateUser({
 			data: {
 				tenant_id: userData.tenant_id,
 				tenant_name: userData.tenants.nombre,
-				role_id: userData.roles.id,
-				role_name: userData.roles.nombre,
-				is_admin: userData.roles.es_admin,
-				permissions: userData.roles.permisos
+				role_id: roleData.id,
+				role_name: roleData.nombre,
+				is_admin: roleData.es_admin,
+				permissions: roleData.permisos
 			}
 		});
 
@@ -124,14 +162,14 @@ export async function loginWithSupabaseAuth(email, password) {
 		console.log('✅ Login exitoso:', {
 			user: userData.nombre,
 			tenant: userData.tenants.nombre,
-			role: userData.roles.nombre
+			role: roleData.nombre
 		});
 
 		return {
 			authUser: authData.user,
 			userData: userData,
 			tenantData: userData.tenants,
-			roleData: userData.roles
+			roleData: roleData
 		};
 
 	} catch (error) {
@@ -166,13 +204,12 @@ export async function getCurrentSession() {
 		if (error) throw error;
 		
 		if (session) {
-			// Obtener datos completos con tenant y rol
+			// Obtener datos del usuario
 			const { data: userData, error: userError } = await supabase
 				.from('users')
 				.select(`
 					*,
-					tenants!inner(id, nombre, activo),
-					roles!inner(id, nombre, permisos, es_admin)
+					tenants!inner(id, nombre, activo)
 				`)
 				.eq('id', session.user.id)
 				.eq('activo', true)
@@ -184,11 +221,24 @@ export async function getCurrentSession() {
 				return null;
 			}
 
+			// Obtener rol del usuario
+			const { data: roleData, error: roleError } = await supabase
+				.from('roles')
+				.select('id, nombre, permisos, es_admin')
+				.eq('tenant_id', userData.tenant_id)
+				.eq('nombre', userData.rol)
+				.single();
+
+			if (roleError || !roleData) {
+				console.warn('⚠️ Rol no encontrado en sesión actual');
+				return null;
+			}
+
 			return {
 				authUser: session.user,
 				userData: userData,
 				tenantData: userData.tenants,
-				roleData: userData.roles
+				roleData: roleData
 			};
 		}
 
@@ -214,8 +264,7 @@ export function onAuthStateChange(callback) {
 					.from('users')
 					.select(`
 						*,
-						tenants!inner(id, nombre, activo),
-						roles!inner(id, nombre, permisos, es_admin)
+						tenants!inner(id, nombre, activo)
 					`)
 					.eq('id', session.user.id)
 					.eq('activo', true)
@@ -223,12 +272,24 @@ export function onAuthStateChange(callback) {
 					.single();
 
 				if (userData) {
-					callback(event, {
-						authUser: session.user,
-						userData: userData,
-						tenantData: userData.tenants,
-						roleData: userData.roles
-					});
+					// Obtener rol del usuario
+					const { data: roleData } = await supabase
+						.from('roles')
+						.select('id, nombre, permisos, es_admin')
+						.eq('tenant_id', userData.tenant_id)
+						.eq('nombre', userData.rol)
+						.single();
+
+					if (roleData) {
+						callback(event, {
+							authUser: session.user,
+							userData: userData,
+							tenantData: userData.tenants,
+							roleData: roleData
+						});
+					} else {
+						callback(event, null);
+					}
 				} else {
 					callback(event, null);
 				}

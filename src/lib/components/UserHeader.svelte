@@ -1,9 +1,9 @@
 <script>
-	import { userContext, logout } from '$lib/stores/optimized-auth.js';
+	import { currentUser, currentTenant, auth } from '$lib/stores/simple-auth.js';
 	import { goto } from '$app/navigation';
 
-	function handleLogout() {
-		logout();
+	async function handleLogout() {
+		await auth.signOut();
 		goto('/login');
 	}
 
@@ -40,15 +40,15 @@
 	}
 </script>
 
-{#if $userContext}
+{#if $currentUser && $currentTenant}
 	<header class="user-header">
 		<div class="user-info">
 			<div class="user-details">
-				<span class="user-name">{$userContext.full_name}</span>
-				<span class="company-name">{$userContext.tenant_name}</span>
+				<span class="user-name">{$currentUser.nombre}</span>
+				<span class="company-name">{$currentTenant.nombre}</span>
 			</div>
-			<div class="role-badge {getRoleBadgeClass($userContext.role)}">
-				{getRoleName($userContext.role)}
+			<div class="role-badge {getRoleBadgeClass($currentUser.rol)}">
+				{getRoleName($currentUser.rol)}
 			</div>
 		</div>
 		

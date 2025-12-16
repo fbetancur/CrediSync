@@ -1,11 +1,12 @@
 <script>
 	import { onMount } from 'svelte';
 	import { dataService } from '$lib/db/data-service.js';
+	import { isFullyLoaded } from '$lib/stores/simple-auth.js';
 	import BottomMenu from '$lib/components/BottomMenu.svelte';
 
 	/** @type {Array<any>} */
 	let productos = [];
-	let showForm = fals
+	let showForm = false;
 	let newProducto = {
 		nombre: '',
 		interes_porcentaje: '',
@@ -19,6 +20,10 @@
 			productos = await dataService.getProductosCredito();
 		} catch (error) {
 			console.error('Error loading productos:', error);
+			// Si no hay usuario autenticado, no intentar cargar datos
+			if (error.message.includes('no autenticado')) {
+				productos = [];
+			}
 		}
 	}
 
@@ -39,7 +44,10 @@
 		}
 	}
 
-	onMount(loadProductos);
+	// Solo cargar productos cuando esté completamente autenticado y con datos multi-tenant
+	$: if ($isFullyLoaded) {
+		loadProductos();
+	}
 </script>
 
 <div class="page">

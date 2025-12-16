@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { browser } from '$app/environment';
-	import { isAuthenticated, restoreSession } from '$lib/stores/optimized-auth.js';
+	import { isAuthenticated } from '$lib/stores/simple-auth.js';
 	import UserHeader from '$lib/components/UserHeader.svelte';
 	
 	// Rutas que no requieren autenticación
@@ -11,23 +11,13 @@
 	
 	let mounted = false;
 	
-	// Restaurar sesión al cargar la app
+	// Verificar autenticación al cargar la app
 	onMount(() => {
 		mounted = true;
 		
-		try {
-			const sessionRestored = restoreSession();
-			
-			// Si no hay sesión y no estamos en login, redirigir
-			if (!sessionRestored && !publicRoutes.includes($page.url.pathname)) {
-				goto('/login');
-			}
-		} catch (error) {
-			console.error('Error restaurando sesión:', error);
-			// Si hay error, ir al login
-			if (!publicRoutes.includes($page.url.pathname)) {
-				goto('/login');
-			}
+		// Si no hay sesión y no estamos en login, redirigir
+		if (!$isAuthenticated && !publicRoutes.includes($page.url.pathname)) {
+			goto('/login');
 		}
 	});
 	

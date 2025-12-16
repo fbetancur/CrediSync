@@ -1,6 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
-	import { userContext } from '$lib/stores/optimized-auth.js';
+	import { currentUser, currentTenant, currentRole } from '$lib/stores/simple-auth.js';
 	import { dataService } from '$lib/db/data-service.js';
 	import BottomMenu from '$lib/components/BottomMenu.svelte';
 
@@ -23,7 +23,14 @@
 			]);
 			
 			stats = {
-				user: $userContext,
+				user: {
+					id: $currentUser.id,
+					email: $currentUser.email,
+					full_name: $currentUser.nombre,
+					tenant_name: $currentTenant.nombre,
+					tenant_id: $currentUser.tenant_id,
+					role: $currentUser.rol
+				},
 				counts: {
 					clientes: clientes.length,
 					productos: productos.length,
@@ -69,7 +76,10 @@
 		}
 	}
 
-	onMount(loadStats);
+	// Solo cargar stats cuando esté autenticado
+	$: if ($currentUser && $currentTenant) {
+		loadStats();
+	}
 </script>
 
 <svelte:head>

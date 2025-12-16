@@ -188,8 +188,9 @@ interface SyncResult {
 interface RoleManager {
   checkPermission(action: string, resource: string): boolean
   filterDataByRole(data: any[], role: Role): any[]
+  filterDataByScope(data: any[], userId: string, scope: RoleScope): any[]
   getAccessibleForms(): string[]
-  canAccessData(dataId: string): boolean
+  canAccessData(dataId: string, userId: string): boolean
 }
 
 interface Permission {
@@ -197,7 +198,76 @@ interface Permission {
   actions: string[]
   conditions?: Record<string, any>
 }
+
+interface RoleScope {
+  type: 'own' | 'tenant'
+  description: string
+}
+
+interface GenericRole {
+  name: 'admin' | 'manager' | 'user' | 'viewer'
+  scope: RoleScope
+  permissions: Permission[]
+  description: string
+}
 ```
+
+## Generic Role System
+
+### Role Definitions
+
+The system implements four generic roles applicable to any business domain:
+
+```typescript
+const GENERIC_ROLES = {
+  admin: {
+    name: 'admin',
+    scope: 'tenant',
+    permissions: ['create', 'read', 'update', 'delete', 'manage_users', 'manage_config'],
+    description: 'Full access to all tenant data and configuration',
+    isAdmin: true,
+    canCreateUsers: true
+  },
+  manager: {
+    name: 'manager', 
+    scope: 'tenant',
+    permissions: ['create', 'read', 'update', 'delete', 'manage_users'],
+    description: 'Full access to all tenant data, can manage users but not configuration',
+    isAdmin: false,
+    canCreateUsers: true
+  },
+  user: {
+    name: 'user',
+    scope: 'own', 
+    permissions: ['create', 'read', 'update'],
+    description: 'Can only access and modify their own created data',
+    isAdmin: false,
+    canCreateUsers: false
+  },
+  viewer: {
+    name: 'viewer',
+    scope: 'own',
+    permissions: ['read'],
+    description: 'Read-only access to their own data or assigned data',
+    isAdmin: false,
+    canCreateUsers: false
+  }
+}
+```
+
+### Scope-Based Data Access
+
+- **"tenant" scope**: User can access all data within their tenant
+- **"own" scope**: User can only access data they created (where created_by = user_id)
+
+### Role Permission Matrix
+
+| Role    | Scope  | Create | Read | Update | Delete | Manage Users | Manage Config |
+|---------|--------|--------|------|--------|--------|--------------|---------------|
+| admin   | tenant | ✓      | ✓    | ✓      | ✓      | ✓            | ✓             |
+| manager | tenant | ✓      | ✓    | ✓      | ✓      | ✓            | ✗             |
+| user    | own    | ✓      | ✓    | ✓      | ✗      | ✗            | ✗             |
+| viewer  | own    | ✗      | ✓    | ✗      | ✗      | ✗            | ✗             |
 
 ## Data Models
 
@@ -229,10 +299,12 @@ interface User {
 interface Role {
   id: string
   tenantId: string
-  name: string
+  name: 'admin' | 'manager' | 'user' | 'viewer'
+  scope: 'own' | 'tenant'
   permissions: Permission[]
   isAdmin: boolean
   canCreateUsers: boolean
+  description: string
 }
 
 interface FormData {
@@ -359,25 +431,47 @@ interface DataConflict {
 
 ### Role-Based Access Properties
 
-**Property 19: Role-based data filtering**
-*For any* data access attempt, results should be filtered according to user's role permissions, showing only authorized data
+**Property 19: Own-scope data isolation**
+*For any* user with "own" scope role, data access should return only records where created_by equals the user's ID
 **Validates: Requirements 5.1**
 
-**Property 20: Authorization enforcement with audit**
+**Property 20: Tenant-scope data access**
+*For any* user with "tenant" scope role, data access should return all records within the user's tenant regardless of creator
+**Validates: Requirements 5.2**
+
+**Property 21: Authorization enforcement with audit**
 *For any* unauthorized action attempt, the system should prevent the action and maintain complete audit trail
-**Validates: Requirements 5.2, 8.5**
+**Validates: Requirements 5.3, 8.5**
 
-**Property 21: Permission update propagation**
+**Property 22: Permission update propagation**
 *For any* role permission changes, user access should be updated immediately upon next synchronization
-**Validates: Requirements 5.3**
-
-**Property 22: Multiple role permission union**
-*For any* user with multiple roles, the system should apply the union of all role permissions correctly
 **Validates: Requirements 5.4**
 
-**Property 23: Data creator role tagging**
-*For any* data creation, the system should tag data with creator's role information for future access control
+**Property 23: Data creator tagging**
+*For any* data creation, the system should automatically tag data with creator's user_id and role for future access control
 **Validates: Requirements 5.5**
+
+### Generic Role System Properties
+
+**Property 32: Generic role type enforcement**
+*For any* role creation attempt, the system should accept only admin, manager, user, and viewer role types and reject any other role names
+**Validates: Requirements 9.1**
+
+**Property 33: Role scope assignment rules**
+*For any* role assignment, the system should enforce that user and viewer roles have "own" scope while admin and manager roles have "tenant" scope
+**Validates: Requirements 9.2**
+
+**Property 34: Own-scope user data isolation**
+*For any* user with "own" scope who creates data, only that specific user should be able to access the created data within the tenant
+**Validates: Requirements 9.3**
+
+**Property 35: Tenant-scope cross-user access**
+*For any* user with "tenant" scope, they should have access to all data within their tenant regardless of which user created it
+**Validates: Requirements 9.4**
+
+**Property 36: Insufficient permission denial with logging**
+*For any* operation attempted with insufficient role permissions, the system should deny access and create a security log entry
+**Validates: Requirements 9.5**
 
 ### System Reliability Properties
 
@@ -521,26 +615,41 @@ This system requires both unit testing and property-based testing to ensure comp
 
 **Row Level Security (RLS) Policies:**
 ```sql
--- Tenant isolation policy
+-- Tenant isolation policy (base level)
 CREATE POLICY tenant_isolation ON form_data
   FOR ALL TO authenticated
   USING (tenant_id = auth.jwt() ->> 'tenant_id');
 
--- Role-based access policy  
-CREATE POLICY role_access ON form_data
-  FOR SELECT TO authenticated
+-- Scope-based access policy for "own" scope users
+CREATE POLICY own_scope_access ON form_data
+  FOR ALL TO authenticated
   USING (
     tenant_id = auth.jwt() ->> 'tenant_id' AND
-    check_role_permission(auth.jwt() ->> 'role_id', 'read', form_type)
+    (
+      -- Users with "tenant" scope see all tenant data
+      (auth.jwt() ->> 'role_scope') = 'tenant' OR
+      -- Users with "own" scope see only their own data
+      ((auth.jwt() ->> 'role_scope') = 'own' AND created_by = auth.uid())
+    )
+  );
+
+-- Permission-based action policy
+CREATE POLICY permission_based_actions ON form_data
+  FOR ALL TO authenticated
+  USING (
+    tenant_id = auth.jwt() ->> 'tenant_id' AND
+    check_role_permission(auth.jwt() ->> 'role_name', TG_OP, 'form_data')
   );
 ```
 
 **Indexing Strategy:**
 ```sql
--- Composite indexes for tenant-based queries
-CREATE INDEX idx_form_data_tenant_user ON form_data(tenant_id, user_id, created_at);
+-- Composite indexes for tenant and user-based queries
+CREATE INDEX idx_form_data_tenant_user ON form_data(tenant_id, created_by, created_at);
 CREATE INDEX idx_form_data_tenant_type ON form_data(tenant_id, form_type, created_at);
-CREATE INDEX idx_sync_queue_tenant ON sync_queue(tenant_id, created_at);
+CREATE INDEX idx_form_data_user_type ON form_data(created_by, form_type, created_at);
+CREATE INDEX idx_sync_queue_tenant_user ON sync_queue(tenant_id, user_id, created_at);
+CREATE INDEX idx_users_tenant_role ON users(tenant_id, rol, activo);
 ```
 
 ### Offline Storage Architecture

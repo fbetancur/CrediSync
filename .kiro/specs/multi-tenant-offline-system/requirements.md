@@ -10,10 +10,12 @@ Este documento especifica los requerimientos para un sistema multi-tenant escala
 - **System_Admin**: El propietario de la aplicación que gestiona tenants y usuarios
 - **Tenant_User**: Un usuario que pertenece a un tenant específico y usa la aplicación
 - **Role**: Un conjunto de permisos que determina qué datos y funcionalidades puede acceder un usuario
-- **Data_Isolation**: Separación completa de datos entre diferentes tenants
+- **Role_Scope**: Define el alcance de acceso de un rol ("own" para datos propios, "tenant" para todos los datos del tenant)
+- **Data_Isolation**: Separación completa de datos entre diferentes tenants y usuarios según su rol
+- **User_Data_Isolation**: Separación de datos por usuario dentro del mismo tenant para roles con scope "own"
 - **Offline_Mode**: Funcionamiento de la aplicación sin conexión a internet
 - **Sync_Manager**: Componente que maneja la sincronización de datos entre local y servidor
-- **RLS_Policy**: Row Level Security policy que filtra datos automáticamente por tenant y permisos
+- **RLS_Policy**: Row Level Security policy que filtra datos automáticamente por tenant, usuario y permisos
 
 ## Requirements
 
@@ -67,15 +69,27 @@ Este documento especifica los requerimientos para un sistema multi-tenant escala
 
 ### Requirement 5
 
-**User Story:** Como Tenant_User con rol específico, quiero acceder solo a los datos permitidos por mi rol, para que el sistema mantenga la seguridad y organización de la información.
+**User Story:** Como Tenant_User con rol específico, quiero acceder solo a los datos permitidos por mi rol y scope, para que el sistema mantenga la seguridad y organización de la información.
 
 #### Acceptance Criteria
 
-1. WHEN user accesses any data view THEN the system SHALL filter results based on user's role permissions
-2. WHEN user attempts unauthorized action THEN the system SHALL prevent the action and maintain audit trail
-3. WHEN role permissions change THEN the system SHALL update user access immediately upon next synchronization
-4. WHERE user has multiple roles THEN the system SHALL apply the union of all role permissions
-5. WHEN data is created THEN the system SHALL tag it with creator's role for future access control
+1. WHEN user with "own" scope accesses data THEN the system SHALL show only data created by that user
+2. WHEN user with "tenant" scope accesses data THEN the system SHALL show all data within the tenant
+3. WHEN user attempts unauthorized action THEN the system SHALL prevent the action and maintain audit trail
+4. WHEN role permissions change THEN the system SHALL update user access immediately upon next synchronization
+5. WHEN data is created THEN the system SHALL tag it with creator's user_id and role for future access control
+
+### Requirement 9
+
+**User Story:** Como System_Admin, quiero definir roles genéricos aplicables a diferentes tipos de aplicaciones, para que el sistema sea reutilizable en diversos contextos empresariales.
+
+#### Acceptance Criteria
+
+1. WHEN System_Admin creates roles THEN the system SHALL support admin, manager, user, and viewer role types
+2. WHEN assigning role scope THEN the system SHALL enforce "own" scope for user-level access and "tenant" scope for management access
+3. WHEN user with "own" scope creates data THEN the system SHALL ensure only that user can access their created data
+4. WHEN user with "tenant" scope accesses data THEN the system SHALL provide access to all tenant data regardless of creator
+5. WHERE role permissions are insufficient THEN the system SHALL deny access and log the security event
 
 ### Requirement 6
 

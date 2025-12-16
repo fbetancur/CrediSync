@@ -1,21 +1,17 @@
 <script>
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
-	import { 
-		login,
-		isAuthenticated,
-		authLoading,
-		authError,
-		currentTenant,
-		currentRole
-	} from '$lib/stores/multi-tenant-auth.js';
+	import { user, auth, isFullyLoaded } from '$lib/stores/simple-auth.js';
 
 	let email = '';
 	let password = '';
 	let showPassword = false;
+	let loading = false;
+	let error = '';
 
-	// Redirigir si ya está autenticado
-	$: if ($isAuthenticated) {
+	// Redirigir solo cuando esté completamente cargado
+	$: if ($isFullyLoaded) {
+		console.log('✅ Usuario completamente autenticado, redirigiendo...');
 		goto('/');
 	}
 
@@ -24,12 +20,20 @@
 			return;
 		}
 
-		try {
-			await login(email, password);
-			// El redirect se maneja automáticamente por el reactive statement arriba
-		} catch (err) {
-			// El error se maneja automáticamente por el store authError
-			console.error('Error en login:', err);
+		loading = true;
+		error = '';
+
+		console.log('🔐 Intentando login con:', email);
+		const { error: authError } = await auth.signIn(email, password);
+
+		loading = false;
+
+		if (authError) {
+			error = authError.message;
+			console.error('❌ Error en login:', authError);
+		} else {
+			console.log('✅ Login exitoso, redirigiendo...');
+			goto('/');
 		}
 	}
 
@@ -90,19 +94,19 @@
 			</div>
 
 			<!-- Error -->
-			{#if $authError}
+			{#if error}
 				<div class="error">
-					{$authError}
+					{error}
 				</div>
 			{/if}
 
 			<!-- Botón de Login -->
 			<button 
 				type="submit" 
-				disabled={$authLoading || !email || !password}
+				disabled={loading || !email || !password}
 				class="login-btn"
 			>
-				{$authLoading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
+				{loading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
 			</button>
 		</form>
 
@@ -111,12 +115,13 @@
 			<h3>🏢 Sistema Multi-Tenant</h3>
 			<p>Ingresa con tu email y contraseña. El sistema detectará automáticamente tu empresa y permisos.</p>
 			
-			{#if $isAuthenticated && $currentTenant}
+			{#if $user && !$isFullyLoaded}
+				<div class="loading-session">
+					<p>🔄 Cargando datos de la empresa...</p>
+				</div>
+			{:else if $isFullyLoaded}
 				<div class="current-session">
-					<p><strong>Empresa:</strong> {$currentTenant.nombre}</p>
-					{#if $currentRole}
-						<p><strong>Rol:</strong> {$currentRole.nombre}</p>
-					{/if}
+					<p><strong>Redirigiendo...</strong></p>
 				</div>
 			{/if}
 		</div>
@@ -213,34 +218,7 @@
 		color: #374151;
 	}
 
-	.role-info {
-		background: #f0f9ff;
-		border: 1px solid #0ea5e9;
-		border-radius: 8px;
-		padding: 16px;
-		margin-bottom: 20px;
-	}
 
-	.role-badge {
-		display: inline-block;
-		padding: 4px 12px;
-		border-radius: 20px;
-		font-size: 12px;
-		font-weight: 600;
-		text-transform: uppercase;
-		margin-bottom: 8px;
-	}
-
-	.badge-user { background: #dbeafe; color: #1e40af; }
-	.badge-manager { background: #fef3c7; color: #92400e; }
-	.badge-admin { background: #dcfce7; color: #166534; }
-	.badge-superadmin { background: #fce7f3; color: #be185d; }
-
-	.role-description {
-		margin: 0;
-		font-size: 14px;
-		color: #0369a1;
-	}
 
 	.error {
 		background: #fef2f2;
@@ -302,6 +280,20 @@
 	.current-session p {
 		margin: 4px 0;
 		color: #0369a1;
+		font-size: 14px;
+	}
+
+	.loading-session {
+		background: #fef3c7;
+		border: 1px solid #f59e0b;
+		border-radius: 8px;
+		padding: 12px;
+		margin-top: 16px;
+	}
+
+	.loading-session p {
+		margin: 4px 0;
+		color: #92400e;
 		font-size: 14px;
 	}
 </style>
