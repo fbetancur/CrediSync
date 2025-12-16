@@ -63,7 +63,7 @@ export async function registerUser(userData) {
 }
 
 /**
- * Login real con Supabase Auth
+ * Login multi-tenant con detección automática de empresa
  * @param {string} email - Email del usuario
  * @param {string} password - Password del usuario
  */
@@ -77,22 +77,61 @@ export async function loginWithSupabaseAuth(email, password) {
 			password
 		});
 
-		if (authError) throw authError;
+		if (authError) {
+			// No revelar información específica del tenant en errores
+			throw new Error('Credenciales inválidas');
+		}
 
-		// 2. Obtener datos adicionales de nuestra tabla users
+		// 2. Obtener datos completos del usuario con tenant y rol
 		const { data: userData, error: userError } = await supabase
 			.from('users')
-			.select('*')
+			.select(`
+				*,
+				tenants!inner(id, nombre, activo),
+				roles!inner(id, nombre, permisos, es_admin)
+			`)
 			.eq('id', authData.user.id)
 			.eq('activo', true)
+			.eq('tenants.activo', true)
 			.single();
 
-		if (userError) throw userError;
+		if (userError || !userData) {
+			console.error('❌ Usuario no encontrado o inactivo:', userError);
+			throw new Error('Usuario no autorizado');
+		}
 
-		console.log('✅ Login exitoso:', userData);
+		// 3. Verificar que el tenant esté activo
+		if (!userData.tenants.activo) {
+			throw new Error('Empresa temporalmente suspendida');
+		}
+
+		// 4. Actualizar JWT con información del tenant y rol
+		const { error: updateError } = await supabase.auth.updateUser({
+			data: {
+				tenant_id: userData.tenant_id,
+				tenant_name: userData.tenants.nombre,
+				role_id: userData.roles.id,
+				role_name: userData.roles.nombre,
+				is_admin: userData.roles.es_admin,
+				permissions: userData.roles.permisos
+			}
+		});
+
+		if (updateError) {
+			console.warn('⚠️ No se pudo actualizar JWT:', updateError);
+		}
+
+		console.log('✅ Login exitoso:', {
+			user: userData.nombre,
+			tenant: userData.tenants.nombre,
+			role: userData.roles.nombre
+		});
+
 		return {
 			authUser: authData.user,
-			userData: userData
+			userData: userData,
+			tenantData: userData.tenants,
+			roleData: userData.roles
 		};
 
 	} catch (error) {
@@ -118,7 +157,7 @@ export async function logoutFromSupabase() {
 }
 
 /**
- * Obtener sesión actual de Supabase Auth
+ * Obtener sesión actual con contexto multi-tenant
  */
 export async function getCurrentSession() {
 	try {
@@ -127,19 +166,29 @@ export async function getCurrentSession() {
 		if (error) throw error;
 		
 		if (session) {
-			// Obtener datos adicionales de nuestra tabla
+			// Obtener datos completos con tenant y rol
 			const { data: userData, error: userError } = await supabase
 				.from('users')
-				.select('*')
+				.select(`
+					*,
+					tenants!inner(id, nombre, activo),
+					roles!inner(id, nombre, permisos, es_admin)
+				`)
 				.eq('id', session.user.id)
 				.eq('activo', true)
+				.eq('tenants.activo', true)
 				.single();
 
-			if (userError) throw userError;
+			if (userError || !userData) {
+				console.warn('⚠️ Usuario no encontrado en sesión actual');
+				return null;
+			}
 
 			return {
 				authUser: session.user,
-				userData: userData
+				userData: userData,
+				tenantData: userData.tenants,
+				roleData: userData.roles
 			};
 		}
 
@@ -151,7 +200,7 @@ export async function getCurrentSession() {
 }
 
 /**
- * Escuchar cambios de autenticación
+ * Escuchar cambios de autenticación con contexto multi-tenant
  * @param {Function} callback - Función callback para manejar cambios de estado
  */
 export function onAuthStateChange(callback) {
@@ -159,19 +208,30 @@ export function onAuthStateChange(callback) {
 		console.log('🔄 Auth state changed:', event);
 		
 		if (session) {
-			// Obtener datos del usuario
+			// Obtener datos completos del usuario
 			try {
 				const { data: userData } = await supabase
 					.from('users')
-					.select('*')
+					.select(`
+						*,
+						tenants!inner(id, nombre, activo),
+						roles!inner(id, nombre, permisos, es_admin)
+					`)
 					.eq('id', session.user.id)
 					.eq('activo', true)
+					.eq('tenants.activo', true)
 					.single();
 
-				callback(event, {
-					authUser: session.user,
-					userData: userData
-				});
+				if (userData) {
+					callback(event, {
+						authUser: session.user,
+						userData: userData,
+						tenantData: userData.tenants,
+						roleData: userData.roles
+					});
+				} else {
+					callback(event, null);
+				}
 			} catch (error) {
 				console.error('Error obteniendo datos de usuario:', error);
 				callback(event, null);

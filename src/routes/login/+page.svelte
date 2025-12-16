@@ -2,89 +2,41 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { 
-		loadCompanies,
-		loadCompanyUsers, 
-		loginAs, 
-		getRoleInfo,
+		login,
 		isAuthenticated,
-		loading as authLoading
-	} from '$lib/stores/optimized-auth.js';
+		authLoading,
+		authError,
+		currentTenant,
+		currentRole
+	} from '$lib/stores/multi-tenant-auth.js';
 
-	let selectedCompany = '';
-	let selectedUser = '';
-	let password = 'CrediSync2024!'; // Password por defecto
-	/** @type {Array<{id: string, name: string}>} */
-	let companies = [];
-	/** @type {Array<{id: string, email: string, role: string, full_name: string, tenant_id: string}>} */
-	let users = [];
-	let localLoading = false;
-	let error = '';
+	let email = '';
+	let password = '';
+	let showPassword = false;
 
 	// Redirigir si ya está autenticado
 	$: if ($isAuthenticated) {
 		goto('/');
 	}
 
-	onMount(async () => {
-		try {
-			companies = await loadCompanies();
-		} catch (err) {
-			const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
-			error = `Error cargando empresas: ${errorMessage}`;
-			console.error('Error:', err);
-		}
-	});
-
-	async function onCompanyChange() {
-		selectedUser = '';
-		error = '';
-		
-		if (!selectedCompany) {
-			users = [];
-			return;
-		}
-		
-		try {
-			users = await loadCompanyUsers(selectedCompany);
-		} catch (err) {
-			const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
-			error = `Error cargando usuarios: ${errorMessage}`;
-			users = [];
-			console.error('Error:', err);
-		}
-	}
-
 	async function handleLogin() {
-		if (!selectedCompany || !selectedUser) {
-			error = 'Selecciona empresa y usuario';
+		if (!email || !password) {
 			return;
 		}
 
-		localLoading = true;
-		error = '';
-
 		try {
-			await loginAs(selectedCompany, selectedUser, password);
-			goto('/');
+			await login(email, password);
+			// El redirect se maneja automáticamente por el reactive statement arriba
 		} catch (err) {
-			error = err instanceof Error ? err.message : 'Error de autenticación';
-		} finally {
-			localLoading = false;
+			// El error se maneja automáticamente por el store authError
+			console.error('Error en login:', err);
 		}
 	}
 
-	/**
-	 * @param {string} role
-	 */
-	function getRoleBadgeClass(role) {
-		/** @type {Record<string, string>} */
-		const classes = {
-			user: 'badge-user',
-			manager: 'badge-manager', 
-			admin: 'badge-admin',
-			superadmin: 'badge-superadmin'
-		};
-		return classes[role] || 'badge-user';
+	function handleKeyPress(event) {
+		if (event.key === 'Enter') {
+			handleLogin();
+		}
 	}
 </script>
 
@@ -100,93 +52,73 @@
 		</div>
 
 		<form on:submit|preventDefault={handleLogin} class="login-form">
-			<!-- Selector de Empresa -->
+			<!-- Campo de Email -->
 			<div class="field">
-				<label for="company">Empresa</label>
-				<select 
-					id="company" 
-					bind:value={selectedCompany} 
-					on:change={onCompanyChange}
+				<label for="email">Email</label>
+				<input 
+					id="email" 
+					type="email"
+					bind:value={email} 
+					placeholder="tu@email.com"
+					on:keypress={handleKeyPress}
 					required
+					autocomplete="email"
 				>
-					<option value="">Seleccionar empresa...</option>
-					{#each companies as company}
-						<option value={company.id}>{company.name}</option>
-					{/each}
-				</select>
-			</div>
-
-			<!-- Selector de Usuario -->
-			<div class="field">
-				<label for="user">Usuario</label>
-				<select 
-					id="user" 
-					bind:value={selectedUser} 
-					disabled={!selectedCompany}
-					required
-				>
-					<option value="">Seleccionar usuario...</option>
-					{#each users as user}
-						<option value={user.email}>
-							{user.full_name} ({user.email})
-						</option>
-					{/each}
-				</select>
 			</div>
 
 			<!-- Campo de Password -->
 			<div class="field">
-				<label for="password">Password</label>
-				<input 
-					id="password" 
-					type="password"
-					bind:value={password} 
-					placeholder="Password de Supabase Auth"
-					required
-				>
+				<label for="password">Contraseña</label>
+				<div class="password-field">
+					<input 
+						id="password" 
+						type={showPassword ? 'text' : 'password'}
+						bind:value={password} 
+						placeholder="Tu contraseña"
+						on:keypress={handleKeyPress}
+						required
+						autocomplete="current-password"
+					>
+					<button 
+						type="button" 
+						class="password-toggle"
+						on:click={() => showPassword = !showPassword}
+					>
+						{showPassword ? '👁️' : '👁️‍🗨️'}
+					</button>
+				</div>
 			</div>
 
-			<!-- Información del Rol -->
-			{#if selectedUser}
-				{@const userInfo = users.find(u => u.email === selectedUser)}
-				{#if userInfo}
-					{@const roleInfo = getRoleInfo(userInfo.role)}
-					<div class="role-info">
-						<div class="role-badge {getRoleBadgeClass(userInfo.role)}">
-							{roleInfo.name}
-						</div>
-						<p class="role-description">{roleInfo.description}</p>
-					</div>
-				{/if}
-			{/if}
-
 			<!-- Error -->
-			{#if error}
+			{#if $authError}
 				<div class="error">
-					{error}
+					{$authError}
 				</div>
 			{/if}
 
 			<!-- Botón de Login -->
 			<button 
 				type="submit" 
-				disabled={$authLoading || localLoading || !selectedCompany || !selectedUser}
+				disabled={$authLoading || !email || !password}
 				class="login-btn"
 			>
-				{$authLoading || localLoading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
+				{$authLoading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
 			</button>
 		</form>
 
-		<!-- Información de Testing -->
-		<div class="testing-info">
-			<h3>🧪 Modo Testing</h3>
-			<p>Esta es una versión de prueba con datos simulados para validar:</p>
-			<ul>
-				<li>Separación por empresa (multiempresa)</li>
-				<li>Filtrado por roles y permisos</li>
-				<li>Persistencia en IndexedDB</li>
-				<li>Cambio de contexto de usuario</li>
-			</ul>
+		<!-- Información del Sistema -->
+		<div class="system-info">
+			<h3>🏢 Sistema Multi-Tenant</h3>
+			<p>Ingresa con tu email y contraseña. El sistema detectará automáticamente tu empresa y permisos.</p>
+			
+			{#if $isAuthenticated && $currentTenant}
+				<div class="current-session">
+					<p><strong>Empresa:</strong> {$currentTenant.nombre}</p>
+					{#if $currentRole}
+						<p><strong>Rol:</strong> {$currentRole.nombre}</p>
+					{/if}
+				</div>
+			{/if}
 		</div>
 	</div>
 </div>
@@ -244,7 +176,7 @@
 		font-size: 14px;
 	}
 
-	.field select {
+	.field input {
 		width: 100%;
 		padding: 12px;
 		border: 1px solid #d1d5db;
@@ -254,15 +186,31 @@
 		box-sizing: border-box;
 	}
 
-	.field select:focus {
+	.field input:focus {
 		outline: none;
 		border-color: #3b82f6;
 		box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 	}
 
-	.field select:disabled {
-		background: #f9fafb;
-		color: #9ca3af;
+	.password-field {
+		position: relative;
+	}
+
+	.password-toggle {
+		position: absolute;
+		right: 12px;
+		top: 50%;
+		transform: translateY(-50%);
+		background: none;
+		border: none;
+		cursor: pointer;
+		font-size: 16px;
+		padding: 0;
+		color: #6b7280;
+	}
+
+	.password-toggle:hover {
+		color: #374151;
 	}
 
 	.role-info {
@@ -326,31 +274,34 @@
 		cursor: not-allowed;
 	}
 
-	.testing-info {
+	.system-info {
 		border-top: 1px solid #e5e7eb;
 		padding-top: 24px;
 	}
 
-	.testing-info h3 {
+	.system-info h3 {
 		margin: 0 0 12px 0;
 		color: #374151;
 		font-size: 16px;
 	}
 
-	.testing-info p {
+	.system-info p {
 		margin: 0 0 12px 0;
 		color: #6b7280;
 		font-size: 14px;
 	}
 
-	.testing-info ul {
-		margin: 0;
-		padding-left: 20px;
-		color: #6b7280;
-		font-size: 14px;
+	.current-session {
+		background: #f0f9ff;
+		border: 1px solid #0ea5e9;
+		border-radius: 8px;
+		padding: 12px;
+		margin-top: 16px;
 	}
 
-	.testing-info li {
-		margin-bottom: 4px;
+	.current-session p {
+		margin: 4px 0;
+		color: #0369a1;
+		font-size: 14px;
 	}
 </style>
