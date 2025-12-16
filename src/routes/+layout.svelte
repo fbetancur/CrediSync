@@ -7,7 +7,7 @@
 	import UserHeader from '$lib/components/UserHeader.svelte';
 	
 	// Rutas que no requieren autenticación
-	const publicRoutes = ['/login', '/test-supabase'];
+	const publicRoutes = ['/login'];
 	
 	let mounted = false;
 	
