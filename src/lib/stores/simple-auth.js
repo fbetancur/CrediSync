@@ -25,16 +25,39 @@ export const isFullyLoaded = derived(
 	([$user, $tenantData]) => !!$user && !!$tenantData
 );
 
-// Inicializar sesión
-supabase.auth.getSession().then(({ data }) => {
+// Inicializar sesión con manejo de errores
+supabase.auth.getSession().then(({ data, error }) => {
+	if (error) {
+		console.error('❌ Error obteniendo sesión:', error);
+		// Limpiar storage corrupto
+		if (error.message?.includes('Invalid Refresh Token') || error.message?.includes('refresh_token')) {
+			console.log('🧹 Limpiando tokens corruptos');
+			localStorage.clear();
+			sessionStorage.clear();
+		}
+		user.set(null);
+		return;
+	}
+	
 	user.set(data.session?.user ?? null);
 	if (data.session?.user) {
 		loadTenantData(data.session.user.id);
 	}
+}).catch(error => {
+	console.error('❌ Error crítico en getSession:', error);
+	user.set(null);
 });
 
-// Escuchar cambios de autenticación
-supabase.auth.onAuthStateChange((_, session) => {
+// Escuchar cambios de autenticación con manejo de errores
+supabase.auth.onAuthStateChange((event, session) => {
+	console.log('🔄 Auth state change:', event);
+	
+	if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
+		if (event === 'SIGNED_OUT') {
+			tenantData.set(null);
+		}
+	}
+	
 	user.set(session?.user ?? null);
 	if (session?.user) {
 		loadTenantData(session.user.id);
@@ -141,6 +164,22 @@ export const auth = {
 	async signOut() {
 		const { error } = await supabase.auth.signOut();
 		tenantData.set(null);
+		// Limpiar storage local también
+		localStorage.clear();
+		sessionStorage.clear();
 		return { error };
+	},
+
+	// Función para limpiar estado corrupto
+	clearCorruptedState() {
+		console.log('🧹 Limpiando estado corrupto de autenticación');
+		user.set(null);
+		tenantData.set(null);
+		localStorage.clear();
+		sessionStorage.clear();
+		// Recargar la página para reinicializar
+		if (typeof window !== 'undefined') {
+			window.location.reload();
+		}
 	}
 };

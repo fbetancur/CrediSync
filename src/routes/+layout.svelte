@@ -12,8 +12,27 @@
 	let mounted = false;
 	
 	// Verificar autenticación al cargar la app
-	onMount(() => {
+	onMount(async () => {
 		mounted = true;
+		
+		// Limpiar estado corrupto de Supabase si existe
+		try {
+			// Verificar si hay errores de token en localStorage
+			const supabaseAuth = localStorage.getItem('sb-hmnlriywocnpiktflehr-auth-token');
+			if (supabaseAuth) {
+				const authData = JSON.parse(supabaseAuth);
+				// Si el token está expirado o corrupto, limpiar
+				if (authData.expires_at && authData.expires_at < Date.now() / 1000) {
+					console.log('🧹 Limpiando token expirado');
+					localStorage.removeItem('sb-hmnlriywocnpiktflehr-auth-token');
+					sessionStorage.clear();
+				}
+			}
+		} catch (error) {
+			console.log('🧹 Limpiando storage corrupto');
+			localStorage.removeItem('sb-hmnlriywocnpiktflehr-auth-token');
+			sessionStorage.clear();
+		}
 		
 		// Si no hay sesión y no estamos en login, redirigir
 		if (!$isAuthenticated && !publicRoutes.includes($page.url.pathname)) {
